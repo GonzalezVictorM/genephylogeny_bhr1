@@ -1,0 +1,6 @@
+__pycache__/
+utils/__pycache__/
+.venv/
+.vscode/
+local_data/
+.Rproj.user
