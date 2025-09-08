@@ -104,12 +104,6 @@ tree$edge.length[which(!(tree$edge[,1] %in% tree$edge[,2]))] <- sum(tree$edge.le
 tax_data <- read.csv(tax_file) %>%
   full_join(read.csv(tax_outgroup_file)) %>%
   select(portal, name, phylum:genus, primary_lifestyle) %>%
-  mutate(portal = as.character(portal))
-
-# Annotate taxonomy tip metadata
-protein_metadata <- read.csv(tax_file) %>%
-  full_join(read.csv(tax_outgroup_file)) %>%
-  select(portal, name, phylum:genus, primary_lifestyle) %>%
   mutate(portal = as.character(portal),
          phylum = factor(phylum, levels = names(phylum_palette)),
          class = factor(class))
@@ -134,14 +128,60 @@ lifestyle_metadata <- data.frame(lifestyle_matrix) %>%
 lifestyle_metadata$binary[is.na(lifestyle_metadata$binary)]<- 0
 
 # -----------------------------
-# Build the final tree
+# Identify monophyletic clades: by class
 # -----------------------------
-# The circular layout tree.
-p <- ggtree(tree, size=0.15, open.angle=5) +
-  #xlim(0,50) +
-  geom_nodelab(size = 0.5, nudge_x = 0.01, nudge_y = 0.5)
+annotation_set <- "class"
+all_nodes <- 1:max(tree$edge)
+clade_labels <- list()
 
-p <- p %<+% protein_metadata +
+for (node in all_nodes) {
+  desc <- getDescendants(tree, node)
+  tips <- desc[desc <= length(tree$tip.label)]
+  labels <- tree$tip.label[tips]
+  vals <- tax_data %>%
+    filter(portal %in% labels) %>% 
+    pull(!!sym(annotation_set)) %>% 
+    unique()
+  if (length(vals) == 1 && !is.na(vals)) {
+    clade_labels[[length(clade_labels) + 1]] <- list(node = node, label = vals)
+  }
+}
+
+filtered_set <- list()
+for (i in seq_along(clade_labels)) {
+  cur <- clade_labels[[i]]
+  nested <- any(sapply(clade_labels, function(other) {
+    cur$label == other$label &&
+      cur$node != other$node &&
+      cur$node %in% getDescendants(tree, other$node)
+  }))
+  if (!nested) filtered_set[[length(filtered_set) + 1]] <- cur
+}
+
+set_clades <- as.data.frame(do.call(rbind, filtered_set))
+set_clades <- data.frame(node = unlist(set_clades$node),
+                         name = unlist(set_clades$label)) %>%
+  mutate(offset.text = seq(0.05, 0.3, length.out = n()))
+
+# -----------------------------
+# Build the final trees
+# -----------------------------
+# The rectangular layout tree.
+p <- ggtree(tree, 
+            size=0.15
+) +
+  xlim(-0.1,NA) +
+  ylim(-0.1,NA) +
+  geom_nodelab(size = 2, nudge_x = 0.01, nudge_y = 0.5) +
+  geom_hilight(node = 162, 
+               fill = "gray", 
+               alpha = 0.25,
+               extendto = 3.95)
+
+
+p <- ggtree::rotate(p, 269)
+
+p <- p %<+% tax_data +
   geom_tippoint(
     aes(color = phylum), 
     size = 0.4,
@@ -151,16 +191,34 @@ p <- p %<+% protein_metadata +
     aes(color = phylum),
     align=TRUE,
     linetype=3,
-    size = 1.5,
+    size = 3,
     hjust = -0.1,
-    linesize=0.2,
+    linesize= 0.2,
     show.legend=FALSE,
-    offset = 0.15
+    offset = 0.05
   ) +
   scale_color_manual(
     name = "Phylum", 
     values = phylum_palette, 
     na.translate = FALSE
+  )
+
+p <- p +
+  geom_cladelab(
+    data = set_clades,
+    mapping = aes(
+      node = node,
+      label = name
+      # offset.text = offset.text,
+    ),
+    align = FALSE,
+    offset = 1,
+    #offset.text = 0.24,
+    hjust = "left",
+    barsize = 1,
+    fontsize = 3,
+    #angle = "auto",
+    horizontal = FALSE
   )
 
 p <- p +
@@ -171,35 +229,56 @@ p <- p +
       y=portal, 
       x=lifestyle, 
       alpha=binary, 
-      fill = lifestyle_set),
-    offset=0.08,
+      fill = lifestyle_set,),
+    offset = 0.34,
+    # width = 0.1,
+    # height = 1,
     axis.params = list(
       axis = "x",  # Display the x-axis
       text.size = 3, # Adjust tick label size
-      text.angle = 90, # Rotate tick labels for better readability
-      line.size = 0
+      text.angle = 30, # Rotate tick labels for better readability
+      line.size = 0,
+      hjust = "right"
     )
   ) +
   scale_fill_manual(
     name = "Lifestyle",
     values = unique(unname(lifestyle_palette))
   ) +
-  geom_treescale(fontsize=2, linesize=0.3, x=4.9, y=0.1)
+  geom_treescale(fontsize=3, linesize=1, x=0.1, y=-0.05) 
 
-file_height <- 30
-file_width <- 30
+file_height <- 20
+file_width <- 20
 
-ggsave(output_tree_rect, plot = p, width = file_width, height = file_height, limitsize = FALSE)
+ggsave(output_tree_rect, 
+       plot = p, 
+       width = file_width, 
+       height = file_height, 
+       limitsize = FALSE)
 
 # -----------------------------
 # Build the final tree
 # -----------------------------
 # The circular layout tree.
-p <- ggtree(tree, layout="fan", size=0.15, open.angle=5) +
-  #xlim(0,50) +
-  geom_nodelab(size = 0.5, nudge_x = 0.01, nudge_y = 0.5)
+p <- ggtree(tree, 
+            layout="fan", 
+            size=0.15, 
+            open.angle=10
+) +
+  xlim(-0.1,NA) +
+  #ylim(-0.1,NA) +
+  geom_nodelab(size = 3, nudge_x = -0.1, nudge_y = -0.8) +
+  #geom_nodelab(aes(label = node),size = 3, nudge_x = 0.01, nudge_y = 0.5) + 
+  geom_hilight(node = 162, 
+               fill = "gray", 
+               alpha = 0.25,
+               extendto = 4.7)
 
-p <- p %<+% protein_metadata +
+p <- ggtree::rotate(p, 269)
+
+p <- rotate_tree(p, -90)
+
+p <- p %<+% tax_data +
   geom_tippoint(
     aes(color = phylum), 
     size = 0.4,
@@ -209,16 +288,34 @@ p <- p %<+% protein_metadata +
     aes(color = phylum),
     align=TRUE,
     linetype=3,
-    size = 1.5,
+    size = 4,
     hjust = -0.1,
-    linesize=0.2,
+    linesize= 0.2,
     show.legend=FALSE,
-    offset = 0.15
+    offset = 0.1
   ) +
   scale_color_manual(
     name = "Phylum", 
     values = phylum_palette, 
     na.translate = FALSE
+  )
+
+p <- p +
+  geom_cladelab(
+    data = set_clades,
+    mapping = aes(
+      node = node,
+      label = name,
+      offset.text = offset.text,
+    ),
+    align = TRUE,
+    offset = 1.2,
+    #offset.text = 0.24,
+    hjust = "center",
+    barsize = 1,
+    fontsize = 4,
+    angle = "auto",
+    horizontal = FALSE
   )
 
 p <- p +
@@ -229,23 +326,29 @@ p <- p +
       y=portal, 
       x=lifestyle, 
       alpha=binary, 
-      fill = lifestyle_set),
-    offset=0.08,
+      fill = lifestyle_set,),
+    offset = 0.4,
+    pwidth = 0.4,
+    # height = 1,
     axis.params = list(
       axis = "x",  # Display the x-axis
       text.size = 3, # Adjust tick label size
-      text.angle = 90, # Rotate tick labels for better readability
-      line.size = 0
+      #text.angle = 90, # Rotate tick labels for better readability
+      line.size = 0,
+      hjust = "right"
     )
   ) +
   scale_fill_manual(
     name = "Lifestyle",
     values = unique(unname(lifestyle_palette))
   ) +
-  geom_treescale(fontsize=2, linesize=0.3, x=4.9, y=0.1)
+  geom_treescale(fontsize=3, linesize=1, x=0.5, y=0.1) 
 
-file_height <- 30
-file_width <- 30
+file_height <- 20
+file_width <- 25
 
-ggsave(output_tree_circ, plot = p, width = file_width, height = file_height, limitsize = FALSE)
-
+ggsave(output_tree_circ, 
+       plot = p, 
+       width = file_width, 
+       height = file_height, 
+       limitsize = FALSE)
