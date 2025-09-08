@@ -87,6 +87,8 @@ tax_file <- file.path(data_dir, "proteome_list_orthofinder_v2.csv")
 tax_outgroup_file <- file.path(data_dir, "outgroup_phylogeny.csv")
 output_tree_rect <- file.path(tree_dir, paste0(input_file, "_rect.pdf"))
 output_tree_circ <- file.path(tree_dir, paste0(input_file, "_circ.pdf"))
+output_tree_node <- file.path(tree_dir, paste0(input_file, "_node.pdf"))
+clade_protein_set <- file.path(phyl_dir, "clade_protein_set.csv")
 
 # -----------------------------
 # Load tree and root
@@ -136,10 +138,10 @@ protein_metadata <- data.frame(protein_id = tree$tip.label) %>%
   left_join(tax_data, by = "portal") %>%
   select(!portal) %>%
   mutate(font_style = "plain",
-         font_size = 1.5)
+         font_size = 1)
 
-protein_metadata$font_style[protein_metadata$new_id %in% char_proteins$protein_id] <- "bold"
-protein_metadata$font_size[protein_metadata$new_id %in% char_proteins$protein_id] <- 2
+protein_metadata$font_style[protein_metadata$protein_id %in% char_proteins$new_id] <- "bold"
+protein_metadata$font_size[protein_metadata$protein_id %in% char_proteins$new_id] <- 2.5
 
 # Create binary matrix
 lifestyle_matrix <- matrix(0, nrow = nrow(tax_data), ncol = length(names(lifestyle_palette)))
@@ -170,7 +172,7 @@ lifestyle_metadata <- data.frame(protein_id = tree$tip.label) %>%
 # -----------------------------
 
 highlight_nodes <- data.frame(
-  node = c(1061,1208,908,759,756,1225,1271),
+  node = c(1061,1208,908,759,756,1412,1402,1225,1271),
   type = "node")
 
 # -----------------------------
@@ -211,7 +213,7 @@ set_clades <- data.frame(node = unlist(set_clades$node),
   mutate(offset.text = seq(0.05, 0.3, length.out = n()))
 
 # -----------------------------
-# Build the final trees
+# Build the node tree
 # -----------------------------
 # The rectangular layout tree.
 p <- ggtree(tree, 
@@ -219,8 +221,8 @@ p <- ggtree(tree,
 ) +
   xlim(-0.1,NA) +
   ylim(-0.1,NA) +
-  geom_nodelab(size = 2, nudge_x = 0.01, nudge_y = 0.5) +
-  geom_highlight(data = highlight_nodes,aes(node=node))
+  geom_nodelab(aes(label = node), size = 2, nudge_x = 0.01, nudge_y = 0.5) +
+  geom_highlight(data = highlight_nodes,aes(node=node),extendto = 11.5)
 
 p <- p %<+% protein_metadata +
   geom_tippoint(
@@ -229,15 +231,18 @@ p <- p %<+% protein_metadata +
     show.legend = TRUE
   ) +
   geom_tiplab(
-    aes(color = phylum, fontface = font_style),
+    aes(color = phylum, 
+        size = font_size,
+        fontface = font_style),
     align=TRUE,
     linetype=3,
-    size = 3,
+    #size = 3,
     hjust = -0.1,
     linesize= 0.2,
     show.legend=FALSE,
     offset = 0.05
   ) +
+  scale_size_identity(guide = "none") +
   scale_color_manual(
     name = "Phylum", 
     values = phylum_palette, 
@@ -253,7 +258,7 @@ p <- p +
       # offset.text = offset.text,
     ),
     align = FALSE,
-    offset = 10,
+    offset = 7,
     #offset.text = 0.24,
     hjust = "left",
     barsize = 1,
@@ -263,29 +268,132 @@ p <- p +
   )
 
 p <- p +
-  geom_fruit(
-    data=lifestyle_metadata, 
-    geom=geom_tile,
-    mapping=aes(
-      y=protein_id, 
-      x=lifestyle, 
-      alpha=binary, 
-      fill = lifestyle_set,),
-    offset = 0.34,
-    # width = 0.1,
-    # height = 1,
-    axis.params = list(
-      axis = "x",  # Display the x-axis
-      text.size = 3, # Adjust tick label size
-      text.angle = 30, # Rotate tick labels for better readability
-      line.size = 0,
-      hjust = "right"
-    )
+  # geom_fruit(
+  #   data=lifestyle_metadata, 
+  #   geom=geom_tile,
+  #   mapping=aes(
+  #     y=protein_id, 
+  #     x=lifestyle, 
+  #     alpha=binary, 
+  #     fill = lifestyle_set,),
+  #   offset = 0.34,
+  #   # width = 0.1,
+  #   # height = 1,
+  #   axis.params = list(
+  #     axis = "x",  # Display the x-axis
+  #     text.size = 3, # Adjust tick label size
+  #     text.angle = 30, # Rotate tick labels for better readability
+  #     line.size = 0,
+  #     hjust = "right"
+  #   )
+  # ) +
+  # scale_fill_manual(
+  #   name = "Lifestyle",
+  #   values = unique(unname(lifestyle_palette))
+  # ) +
+  geom_treescale(fontsize=3, linesize=1, x=0.1, y=-0.05) 
+
+file_height <- 40
+file_width <- 20
+
+ggsave(output_tree_node, 
+       plot = p, 
+       width = file_width, 
+       height = file_height, 
+       limitsize = FALSE)
+
+# -----------------------------
+# Save the genes in the clade as a csv
+# -----------------------------
+selected_node <- 1271
+
+protein_list <- p$data %>%
+  filter(isTip,node %in% getDescendants(tree,1271)) %>%
+  mutate(protein_id = label) %>%
+  separate(col = label, into = c("portal", NA), sep = "-") %>%
+  select(portal,protein_id, node, name:primary_lifestyle)
+
+write.csv(protein_list, clade_protein_set, row.names = FALSE)
+
+# -----------------------------
+# Build the final trees
+# -----------------------------
+# The rectangular layout tree.
+p <- ggtree(tree, 
+            size=0.15
+) +
+  xlim(-0.1,NA) +
+  ylim(-0.1,NA) +
+  geom_nodelab(size = 2, nudge_x = 0.01, nudge_y = 0.5) +
+  geom_highlight(data = highlight_nodes,aes(node=node),extendto = 11.5)
+
+p <- p %<+% protein_metadata +
+  geom_tippoint(
+    aes(color = phylum), 
+    size = 0.4,
+    show.legend = TRUE
   ) +
-  scale_fill_manual(
-    name = "Lifestyle",
-    values = unique(unname(lifestyle_palette))
+  geom_tiplab(
+    aes(color = phylum, 
+        size = font_size,
+        fontface = font_style),
+    align=TRUE,
+    linetype=3,
+    #size = 3,
+    hjust = -0.1,
+    linesize= 0.2,
+    show.legend=FALSE,
+    offset = 0.05
   ) +
+  scale_size_identity(guide = "none") +
+  scale_color_manual(
+    name = "Phylum", 
+    values = phylum_palette, 
+    na.translate = FALSE
+  )
+
+p <- p +
+  geom_cladelab(
+    data = set_clades,
+    mapping = aes(
+      node = node,
+      label = name
+      # offset.text = offset.text,
+    ),
+    align = FALSE,
+    offset = 7,
+    #offset.text = 0.24,
+    hjust = "left",
+    barsize = 1,
+    fontsize = 3,
+    #angle = "auto",
+    horizontal = FALSE
+  )
+
+p <- p +
+  # geom_fruit(
+  #   data=lifestyle_metadata, 
+  #   geom=geom_tile,
+  #   mapping=aes(
+  #     y=protein_id, 
+  #     x=lifestyle, 
+  #     alpha=binary, 
+  #     fill = lifestyle_set,),
+  #   offset = 0.34,
+  #   # width = 0.1,
+  #   # height = 1,
+  #   axis.params = list(
+  #     axis = "x",  # Display the x-axis
+  #     text.size = 3, # Adjust tick label size
+  #     text.angle = 30, # Rotate tick labels for better readability
+  #     line.size = 0,
+  #     hjust = "right"
+  #   )
+  # ) +
+  # scale_fill_manual(
+  #   name = "Lifestyle",
+  #   values = unique(unname(lifestyle_palette))
+  # ) +
   geom_treescale(fontsize=3, linesize=1, x=0.1, y=-0.05) 
 
 file_height <- 40
@@ -310,9 +418,9 @@ p <- ggtree(tree,
   #ylim(-0.1,NA) +
   geom_nodelab(size = 3, nudge_x = -0.1, nudge_y = -0.8) +
  #geom_nodelab(aes(label = node),size = 3, nudge_x = 0.01, nudge_y = 0.5) +
-  geom_highlight(data = highlight_nodes,aes(node=node))
+  geom_highlight(data = highlight_nodes,aes(node=node), extendto = 11.5)
 
-p <- rotate_tree(p, -90)
+# p <- rotate_tree(p, -90)
 
 p <- p %<+% protein_metadata +
   geom_tippoint(
@@ -321,15 +429,16 @@ p <- p %<+% protein_metadata +
     show.legend = TRUE
   ) +
   geom_tiplab(
-    aes(color = phylum),
+    aes(color = phylum, size = font_size+1, fontface = font_style),
     align=TRUE,
     linetype=3,
-    size = 4,
+    #size = 4,
     hjust = -0.1,
     linesize= 0.2,
     show.legend=FALSE,
     offset = 0.1
   ) +
+  scale_size_identity(guide = "none") +
   scale_color_manual(
     name = "Phylum", 
     values = phylum_palette, 

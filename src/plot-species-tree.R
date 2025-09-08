@@ -76,11 +76,13 @@ tax_file <- file.path(data_dir, "proteome_list_orthofinder_v2.csv")
 tax_outgroup_file <- file.path(data_dir, "outgroup_phylogeny.csv")
 output_tree_rect <- file.path(tree_dir, paste0(input_file, "_rect.pdf"))
 output_tree_circ <- file.path(tree_dir, paste0(input_file, "_circ.pdf"))
+output_tree_node <- file.path(tree_dir, paste0(input_file, "_node.pdf"))
+clade_protein_set <- file.path(data_dir,"phylogeny_analysis", "clade_protein_set.csv")
 
 # -----------------------------
 # Load tree and root
 # -----------------------------
-stopifnot(file.exists(tree_file), 
+stopifnot(file.exists(tree_file),file.exists(clade_protein_set),
           file.exists(tax_file), file.exists(tax_outgroup_file))
 
 tree <- read.tree(tree_file)
@@ -99,6 +101,10 @@ tree$edge.length[which(!(tree$edge[,1] %in% tree$edge[,2]))] <- sum(tree$edge.le
 # -----------------------------
 # Load and process taxonomy and lifestyle metadata
 # -----------------------------
+# Load the genes
+protein_list <- read.csv(clade_protein_set) %>%
+  group_by(portal) %>%
+  summarise(count = n())
 
 # Load species metadata
 tax_data <- read.csv(tax_file) %>%
@@ -106,7 +112,11 @@ tax_data <- read.csv(tax_file) %>%
   select(portal, name, phylum:genus, primary_lifestyle) %>%
   mutate(portal = as.character(portal),
          phylum = factor(phylum, levels = names(phylum_palette)),
-         class = factor(class))
+         class = factor(class),
+         font_size = 2) %>%
+  left_join(protein_list)
+tax_data$count[is.na(tax_data$count)] <- 0
+tax_data$font_size[tax_data$portal %in% protein_list$portal] <- 3
 
 # Create binary matrix
 lifestyle_matrix <- matrix(0, nrow = nrow(tax_data), ncol = length(names(lifestyle_palette)))
@@ -164,7 +174,7 @@ set_clades <- data.frame(node = unlist(set_clades$node),
   mutate(offset.text = seq(0.05, 0.3, length.out = n()))
 
 # -----------------------------
-# Build the final trees
+# Build the node tree
 # -----------------------------
 # The rectangular layout tree.
 p <- ggtree(tree, 
@@ -172,8 +182,8 @@ p <- ggtree(tree,
 ) +
   xlim(-0.1,NA) +
   ylim(-0.1,NA) +
-  geom_nodelab(size = 2, nudge_x = 0.01, nudge_y = 0.5) +
-  geom_hilight(node = 162, 
+  geom_nodelab(aes(label = node),size = 2, nudge_x = 0.01, nudge_y = 0.5) +
+  geom_hilight(node = 163, 
                fill = "gray", 
                alpha = 0.25,
                extendto = 3.95)
@@ -188,15 +198,114 @@ p <- p %<+% tax_data +
     show.legend = TRUE
   ) +
   geom_tiplab(
-    aes(color = phylum),
+    aes(color = phylum,
+        size = font_size,
+        fontface = ifelse(font_size == 3, "bold", "plain")),
     align=TRUE,
     linetype=3,
-    size = 3,
+    #size = 3,
     hjust = -0.1,
     linesize= 0.2,
     show.legend=FALSE,
     offset = 0.05
   ) +
+  scale_size_identity(guide = "none") +
+  scale_color_manual(
+    name = "Phylum", 
+    values = phylum_palette, 
+    na.translate = FALSE
+  )
+
+p <- p +
+  geom_cladelab(
+    data = set_clades,
+    mapping = aes(
+      node = node,
+      label = name
+      # offset.text = offset.text,
+    ),
+    align = FALSE,
+    offset = 1,
+    #offset.text = 0.24,
+    hjust = "left",
+    barsize = 1,
+    fontsize = 3,
+    #angle = "auto",
+    horizontal = FALSE
+  )
+
+p <- p +
+  geom_fruit(
+    data=lifestyle_metadata, 
+    geom=geom_tile,
+    mapping=aes(
+      y=portal, 
+      x=lifestyle, 
+      alpha=binary, 
+      fill = lifestyle_set,),
+    offset = 0.34,
+    # width = 0.1,
+    # height = 1,
+    axis.params = list(
+      axis = "x",  # Display the x-axis
+      text.size = 3, # Adjust tick label size
+      text.angle = 30, # Rotate tick labels for better readability
+      line.size = 0,
+      hjust = "right"
+    )
+  ) +
+  scale_fill_manual(
+    name = "Lifestyle",
+    values = unique(unname(lifestyle_palette))
+  ) +
+  geom_treescale(fontsize=3, linesize=1, x=0.1, y=-0.05) 
+
+file_height <- 20
+file_width <- 20
+
+ggsave(output_tree_node, 
+       plot = p, 
+       width = file_width, 
+       height = file_height, 
+       limitsize = FALSE)
+
+# -----------------------------
+# Build the final trees
+# -----------------------------
+# The rectangular layout tree.
+p <- ggtree(tree, 
+            size=0.15
+) +
+  xlim(-0.1,NA) +
+  ylim(-0.1,NA) +
+  geom_nodelab(size = 2, nudge_x = 0.01, nudge_y = 0.5) +
+  geom_hilight(node = 163, 
+               fill = "gray", 
+               alpha = 0.25,
+               extendto = 3.95)
+
+
+p <- ggtree::rotate(p, 269)
+
+p <- p %<+% tax_data +
+  geom_tippoint(
+    aes(color = phylum), 
+    size = 0.4,
+    show.legend = TRUE
+  ) +
+  geom_tiplab(
+    aes(color = phylum,
+        size = font_size,
+        fontface = ifelse(font_size == 3, "bold", "plain")),
+    align=TRUE,
+    linetype=3,
+    #size = 3,
+    hjust = -0.1,
+    linesize= 0.2,
+    show.legend=FALSE,
+    offset = 0.05
+  ) +
+  scale_size_identity(guide = "none") +
   scale_color_manual(
     name = "Phylum", 
     values = phylum_palette, 
@@ -269,7 +378,7 @@ p <- ggtree(tree,
   #ylim(-0.1,NA) +
   geom_nodelab(size = 3, nudge_x = -0.1, nudge_y = -0.8) +
   #geom_nodelab(aes(label = node),size = 3, nudge_x = 0.01, nudge_y = 0.5) + 
-  geom_hilight(node = 162, 
+  geom_hilight(node = 163, 
                fill = "gray", 
                alpha = 0.25,
                extendto = 4.7)
@@ -285,15 +394,18 @@ p <- p %<+% tax_data +
     show.legend = TRUE
   ) +
   geom_tiplab(
-    aes(color = phylum),
+    aes(color = phylum,
+        size = font_size,
+        fontface = ifelse(font_size == 3, "bold", "plain")),
     align=TRUE,
     linetype=3,
-    size = 4,
+    #size = 4,
     hjust = -0.1,
     linesize= 0.2,
     show.legend=FALSE,
     offset = 0.1
   ) +
+  scale_size_identity(guide = "none") +
   scale_color_manual(
     name = "Phylum", 
     values = phylum_palette, 
